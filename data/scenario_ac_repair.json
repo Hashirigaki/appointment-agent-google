@@ -1,0 +1,29 @@
+{
+  "requester": {
+    "name": "Demo Resident"
+  },
+  "request": {
+    "purpose": "Schedule an on-site air-conditioner repair visit",
+    "location": "Demo Apartment"
+  },
+  "providers": [
+    {
+      "name": "Repair Provider A",
+      "channel": "phone",
+      "contact": "+81-00-0000-0001",
+      "mock_outcome": "no_response",
+      "note": "No answer; no callback received within the mock wait window."
+    },
+    {
+      "name": "Repair Provider B",
+      "channel": "email",
+      "contact": "dispatch-b@example.invalid",
+      "mock_outcome": "slots_proposed",
+      "slots": [
+        "2026-08-29T10:00:00+09:00",
+        "2026-08-29T14:00:00+09:00"
+      ],
+      "note": "Provider returned two available visit windows."
+    }
+  ]
+}
