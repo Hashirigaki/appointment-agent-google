@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -16,9 +17,10 @@ from .ontology import (
     Person,
     RequestState,
     TimeProposal,
+    new_id,
     serialize,
 )
-from .state_store import JsonStateStore
+from .state_store import FirestoreStateStore, JsonStateStore
 from .workflow import AppointmentWorkflow
 
 
@@ -31,9 +33,33 @@ def _load_scenario() -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _new_store(state: dict[str, Any] | None = None) -> JsonStateStore:
-    # The ADK session snapshot is authoritative; this path is never flushed.
-    store = JsonStateStore(str(ROOT / "data" / "adk_workflow_unused.json"))
+def _backend_name() -> str:
+    backend = os.getenv("APPOINTMENT_STATE_BACKEND", "json").strip().lower()
+    if backend not in {"json", "firestore"}:
+        raise ValueError("APPOINTMENT_STATE_BACKEND must be 'json' or 'firestore'.")
+    return backend
+
+
+def _new_store(
+    run_id: str,
+    backend: str,
+    state: dict[str, Any] | None = None,
+) -> JsonStateStore | FirestoreStateStore:
+    if backend == "firestore":
+        project = os.getenv("GOOGLE_CLOUD_PROJECT", "").strip()
+        if not project:
+            raise ValueError("GOOGLE_CLOUD_PROJECT is required for Firestore persistence.")
+        store: JsonStateStore | FirestoreStateStore = FirestoreStateStore(
+            run_id=run_id,
+            project=project,
+            database=os.getenv("FIRESTORE_DATABASE", "(default)").strip(),
+            collection=os.getenv(
+                "FIRESTORE_WORKFLOW_COLLECTION", "appointment_workflow_runs"
+            ).strip(),
+        )
+    else:
+        # ADK session state remains the JSON backend's canonical snapshot.
+        store = JsonStateStore(str(ROOT / "data" / "adk_workflow_unused.json"))
     if state is not None:
         store.state = deepcopy(state)
     return store
@@ -42,9 +68,13 @@ def _new_store(state: dict[str, Any] | None = None) -> JsonStateStore:
 def _snapshot(
     request: AppointmentRequest,
     proposal: TimeProposal,
-    store: JsonStateStore,
+    store: JsonStateStore | FirestoreStateStore,
+    run_id: str,
+    backend: str,
 ) -> dict[str, Any]:
     return {
+        "run_id": run_id,
+        "backend": backend,
         "request_id": request.id,
         "proposal_id": proposal.id,
         "request_state": request.state.value,
@@ -60,6 +90,7 @@ def _approval_result(snapshot: dict[str, Any]) -> dict[str, Any]:
     state = snapshot.get("request_state")
     return {
         "status": "success",
+        "run_id": snapshot.get("run_id"),
         "request_id": snapshot.get("request_id"),
         "request_state": state,
         "proposal_id": snapshot.get("proposal_id"),
@@ -86,6 +117,15 @@ def run_appointment_to_approval(tool_context: ToolContext) -> dict[str, Any]:
     """Run the mock AC repair workflow up to its human approval boundary."""
     existing = tool_context.state.get(STATE_KEY)
     if isinstance(existing, dict):
+        if existing.get("backend") == "firestore" and existing.get("run_id"):
+            try:
+                store = _new_store(existing["run_id"], "firestore")
+                persisted = store.load_snapshot()
+                if persisted is not None:
+                    existing = persisted
+                    tool_context.state[STATE_KEY] = deepcopy(existing)
+            except Exception as exc:
+                return {"status": "error", "error_message": f"Firestore read failed: {exc}"}
         return _approval_result(existing)
 
     scenario = _load_scenario()
@@ -120,7 +160,12 @@ def run_appointment_to_approval(tool_context: ToolContext) -> dict[str, Any]:
         location=scenario["request"]["location"],
         candidate_provider_ids=[provider.id for provider in providers],
     )
-    store = _new_store()
+    try:
+        backend = _backend_name()
+        run_id = new_id("run")
+        store = _new_store(run_id, backend)
+    except Exception as exc:
+        return {"status": "error", "error_message": str(exc)}
     store.put("Person", requester.id, serialize(requester))
     for provider in providers:
         store.put("Organization", provider.id, serialize(provider))
@@ -142,7 +187,12 @@ def run_appointment_to_approval(tool_context: ToolContext) -> dict[str, Any]:
         return {"status": "error", "error_message": "No provider proposed a slot."}
 
     workflow.request_human_approval(proposal)
-    snapshot = _snapshot(request, proposal, store)
+    snapshot = _snapshot(request, proposal, store, run_id, backend)
+    if isinstance(store, FirestoreStateStore):
+        try:
+            store.save_snapshot(snapshot)
+        except Exception as exc:
+            return {"status": "error", "error_message": f"Firestore write failed: {exc}"}
     tool_context.state[STATE_KEY] = snapshot
     return _approval_result(snapshot)
 
@@ -152,6 +202,23 @@ def confirm_appointment(slot: str, tool_context: ToolContext) -> dict[str, Any]:
     snapshot = tool_context.state.get(STATE_KEY)
     if not isinstance(snapshot, dict):
         return {"status": "error", "error_message": "No appointment workflow snapshot exists."}
+
+    backend = snapshot.get("backend", "json")
+    run_id = snapshot.get("run_id")
+    if backend == "firestore":
+        if not run_id:
+            return {"status": "error", "error_message": "Firestore snapshot has no run_id."}
+        try:
+            persisted_store = _new_store(run_id, backend)
+            persisted = persisted_store.load_snapshot()
+        except Exception as exc:
+            return {"status": "error", "error_message": f"Firestore read failed: {exc}"}
+        if persisted is None:
+            return {
+                "status": "error",
+                "error_message": f"No Firestore workflow exists for run_id {run_id}.",
+            }
+        snapshot = persisted
 
     state = snapshot.get("request_state")
     selected_slot = snapshot.get("selected_slot")
@@ -183,7 +250,14 @@ def confirm_appointment(slot: str, tool_context: ToolContext) -> dict[str, Any]:
             "error_message": "The approved slot is not in the saved provider proposal.",
         }
 
-    store = _new_store(snapshot["store_state"])
+    try:
+        store = _new_store(
+            snapshot.get("run_id", run_id or new_id("run")),
+            backend,
+            snapshot["store_state"],
+        )
+    except Exception as exc:
+        return {"status": "error", "error_message": str(exc)}
     objects = store.state["objects"]
     request_data = objects.get("AppointmentRequest", {}).get(snapshot.get("request_id"))
     proposal_data = objects.get("TimeProposal", {}).get(snapshot.get("proposal_id"))
@@ -206,7 +280,18 @@ def confirm_appointment(slot: str, tool_context: ToolContext) -> dict[str, Any]:
     except (KeyError, TypeError, ValueError) as exc:
         return {"status": "error", "error_message": str(exc)}
 
-    updated = _snapshot(request, proposal, store)
+    updated = _snapshot(
+        request,
+        proposal,
+        store,
+        snapshot.get("run_id", run_id),
+        backend,
+    )
+    if isinstance(store, FirestoreStateStore):
+        try:
+            store.save_snapshot(updated)
+        except Exception as exc:
+            return {"status": "error", "error_message": f"Firestore write failed: {exc}"}
     tool_context.state[STATE_KEY] = updated
     return {
         "status": "success",

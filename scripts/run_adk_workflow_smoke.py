@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 load_dotenv(ROOT / ".env")
+os.environ["APPOINTMENT_STATE_BACKEND"] = "json"
 
 APP_NAME = "appointment_agent_workflow_smoke"
 USER_ID = "workflow_smoke_user"
