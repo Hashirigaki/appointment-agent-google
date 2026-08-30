@@ -31,6 +31,7 @@ def main():
     provider_by_name = {p.name: p for p in providers}
 
     contacts = {}
+    contact_points = []
     provider_behaviors = {}
 
     for spec in scenario["providers"]:
@@ -40,6 +41,7 @@ def main():
             channel=Channel(spec["channel"]),
             address=spec["contact"],
         )
+        contact_points.append(contact)
         contacts[provider.id] = {
             "contact_point_id": contact.id,
             "channel": contact.channel.value,
@@ -61,6 +63,12 @@ def main():
     store.put("Person", requester.id, serialize(requester))
     for provider in providers:
         store.put("Organization", provider.id, serialize(provider))
+    for contact_point in contact_points:
+        store.put(
+            "ContactPoint",
+            contact_point.id,
+            serialize(contact_point),
+        )
 
     service = MockRepairProviderService(provider_behaviors)
     workflow = AppointmentWorkflow(
@@ -70,7 +78,7 @@ def main():
         store=store,
     )
 
-    print("\n=== Appointment Agent mock v0.1 ===")
+    print("\n=== Appointment Agent mock v0.1.1 ===")
     print(f"Purpose: {request.purpose}")
     print(f"Request: {request.id}\n")
 

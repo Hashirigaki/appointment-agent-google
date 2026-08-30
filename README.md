@@ -1,4 +1,4 @@
-# Appointment Agent — All Things Agentic Mock v0.1
+# Appointment Agent — All Things Agentic Mock v0.1.1
 
 A deliberately small end-to-end mock for learning ontology-first agent design.
 

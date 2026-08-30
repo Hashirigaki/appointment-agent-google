@@ -1,7 +1,7 @@
 """
 Google ADK scaffold.
 
-This file is intentionally thin in v0.1. The deterministic workflow in
+This file is intentionally thin in v0.1.1. The deterministic workflow in
 workflow.py establishes the domain semantics first; ADK is the orchestration
 layer on top of that domain model.
 """
@@ -33,7 +33,7 @@ def describe_ontology() -> dict:
 
 
 def explain_human_boundary() -> dict:
-    """Return the v0.1 approval policy."""
+    """Return the v0.1.1 approval policy."""
     return {
         "requires_human_approval": [
             "committing the requester to a proposed appointment time",
