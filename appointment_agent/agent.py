@@ -9,6 +9,8 @@ layer on top of that domain model.
 import os
 from google.adk.agents import Agent
 
+from .adk_tools import confirm_appointment, run_appointment_to_approval
+
 MODEL_NAME = os.getenv("MODEL_NAME", "gemini-3.5-flash")
 
 
@@ -60,7 +62,18 @@ root_agent = Agent(
         "Do not create channel-specific request types. "
         "You may retry providers after no response. "
         "Before committing a human to a time slot, require human approval. "
-        "Use tools to inspect the ontology and approval boundary."
+        "For an appointment execution request, call run_appointment_to_approval. "
+        "After receiving a provider proposal, present its slots to the user and stop "
+        "in awaiting_human_approval; never confirm in the same turn. "
+        "Do not call confirm_appointment until the user explicitly approves a slot. "
+        "When approved, pass only the exact slot string from the proposal to "
+        "confirm_appointment. Use the other tools to inspect the ontology and "
+        "approval boundary."
     ),
-    tools=[describe_ontology, explain_human_boundary],
+    tools=[
+        describe_ontology,
+        explain_human_boundary,
+        run_appointment_to_approval,
+        confirm_appointment,
+    ],
 )
