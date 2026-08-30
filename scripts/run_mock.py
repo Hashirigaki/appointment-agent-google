@@ -19,7 +19,7 @@ from appointment_agent.workflow import AppointmentWorkflow
 
 
 def main():
-    scenario_path = ROOT / "data" / "scenario_ac_repair.json"
+    scenario_path = ROOT / "appointment_agent" / "data" / "scenario_ac_repair.json"
     scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
 
     requester = Person(name=scenario["requester"]["name"])

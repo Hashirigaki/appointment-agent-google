@@ -25,11 +25,11 @@ from .workflow import AppointmentWorkflow
 
 
 STATE_KEY = "appointment_workflow"
-ROOT = Path(__file__).resolve().parents[1]
+PACKAGE_ROOT = Path(__file__).resolve().parent
 
 
 def _load_scenario() -> dict[str, Any]:
-    path = ROOT / "data" / "scenario_ac_repair.json"
+    path = PACKAGE_ROOT / "data" / "scenario_ac_repair.json"
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -59,7 +59,9 @@ def _new_store(
         )
     else:
         # ADK session state remains the JSON backend's canonical snapshot.
-        store = JsonStateStore(str(ROOT / "data" / "adk_workflow_unused.json"))
+        store = JsonStateStore(
+            str(PACKAGE_ROOT / "data" / "adk_workflow_unused.json")
+        )
     if state is not None:
         store.state = deepcopy(state)
     return store

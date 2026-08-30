@@ -1,0 +1,2 @@
+google-adk==2.8.0
+google-cloud-firestore==2.29.0

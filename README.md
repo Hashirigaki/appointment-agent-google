@@ -91,9 +91,17 @@ The model defaults to:
 gemini-3.5-flash
 ```
 
-## Proposed next step
+## Cloud Run persistence boundary
 
-Replace `JsonStateStore` with `FirestoreStateStore`, run the ADK agent locally, then deploy the backend to Cloud Run.
+The private Cloud Run service uses `FirestoreStateStore` for the canonical
+appointment workflow document. The ADK session service remains `memory://` and
+is not durable across instance replacement; adding a persistent ADK session
+service is intentionally outside the current scope. Local deterministic tests
+continue to use `JsonStateStore` by default.
+
+Gemini uses `GOOGLE_CLOUD_LOCATION=global`. The Cloud Run service and Firestore
+database are deployed separately in `asia-northeast1`; these locations are not
+interchangeable.
 
 ## Architecture
 
@@ -108,13 +116,13 @@ flowchart LR
     A --> H[Human Approval]
     H --> W
 
-    subgraph Google Cloud next
+    subgraph Google Cloud
       CR[Cloud Run]
       FS[(Firestore)]
     end
 
     A -.deploy.-> CR
-    S -.replace with.-> FS
+    S --> FS
 ```
 
 ## Repository map
@@ -126,10 +134,10 @@ appointment_agent/
   mock_services.py  simulated external provider
   state_store.py    local persistence abstraction
   agent.py          Google ADK scaffold
+  data/              packaged deterministic mock scenario
 scripts/
   run_mock.py       reproducible proof-of-action demo
-data/
-  scenario_ac_repair.json
+  run_cloud_run_workflow_smoke.py authenticated deployed API verification
 docs/
   ontology-v0.1.md
   decisions.md
