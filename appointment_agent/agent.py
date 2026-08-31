@@ -26,10 +26,14 @@ def describe_ontology() -> dict:
             "TimeProposal",
             "Appointment",
             "TransitionEvent",
+            "TrajectoryCard",
+            "EventCard",
+            "DetailCard",
         ],
         "principle": (
             "Do not invent channel-specific AppointmentRequest types. "
-            "Represent contact methods as ContactPoint / ContactAttempt."
+            "Represent contact methods as ContactPoint / ContactAttempt. "
+            "Link TrajectoryCard, EventCard, and DetailCard by stable IDs."
         ),
     }
 

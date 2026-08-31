@@ -129,6 +129,27 @@ async def run_smoke() -> None:
         flow = [events[0]["from_state"]] + [event["to_state"] for event in events]
         if flow != EXPECTED_FLOW:
             raise RuntimeError(f"Unexpected transition flow: {' -> '.join(flow)}")
+
+        semantic_events = snapshot["store_state"].get("semantic_events", {})
+        trajectory = snapshot["store_state"].get("trajectories", {}).get(
+            snapshot["run_id"]
+        )
+        required = {
+            "event_id",
+            "run_id",
+            "user_id",
+            "detail_id",
+            "event_type",
+            "start_time",
+        }
+        if trajectory != {"run_id": snapshot["run_id"]}:
+            raise RuntimeError("v0.2 Trajectory Card is missing or recursively embedded.")
+        if len(semantic_events) < 4:
+            raise RuntimeError("v0.2 semantic Event Cards are incomplete.")
+        if any(not required.issubset(event) for event in semantic_events.values()):
+            raise RuntimeError("A v0.2 Event Card is missing required fields.")
+        if any("user_data" in event for event in semantic_events.values()):
+            raise RuntimeError("A v0.2 Event Card recursively embeds Detail data.")
     finally:
         await runner.close()
 
@@ -139,6 +160,7 @@ async def run_smoke() -> None:
     print("Flow: " + " -> ".join(EXPECTED_FLOW))
     print(f"Approved slot: {approved_slot}")
     print(f"Appointment: {snapshot['appointment_id']}")
+    print(f"Semantic events: {len(semantic_events)}")
 
 
 if __name__ == "__main__":

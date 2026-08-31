@@ -154,7 +154,7 @@ def main() -> None:
     if final.get("selected_slot") != approved_slot or not final.get("appointment_id"):
         raise RuntimeError("Deployed confirmation metadata is incomplete.")
 
-    from appointment_agent.state_store import create_firestore_client
+    from appointment_agent.state_store import FirestoreStateStore, create_firestore_client
 
     project = os.getenv("GOOGLE_CLOUD_PROJECT", "").strip()
     database = os.getenv("FIRESTORE_DATABASE", "(default)").strip()
@@ -175,11 +175,34 @@ def main() -> None:
     if canonical.get("request_state") != "confirmed" or flow != EXPECTED_FLOW:
         raise RuntimeError(f"Unexpected Firestore flow: {' -> '.join(flow)}")
 
+    trajectory_store = FirestoreStateStore(
+        run_id=canonical["run_id"],
+        project=project,
+        database=database,
+        collection=collection,
+        trajectory_collection=os.getenv(
+            "FIRESTORE_TRAJECTORY_COLLECTION", "trajectories"
+        ).strip(),
+        event_collection=os.getenv("FIRESTORE_EVENT_COLLECTION", "events").strip(),
+        detail_collection=os.getenv("FIRESTORE_DETAIL_COLLECTION", "details").strip(),
+    )
+    semantic_events = trajectory_store.get_events_for_run(canonical["run_id"])
+    request = canonical["store_state"]["objects"]["AppointmentRequest"][
+        canonical["request_id"]
+    ]
+    user_trajectories = trajectory_store.get_trajectories_for_user(
+        request["requester_id"]
+    )
+    if len(semantic_events) < 4 or len(user_trajectories) != 1:
+        raise RuntimeError("Deployed v0.2 trajectory queries are incomplete.")
+
     print("Authenticated Cloud Run workflow smoke test: PASS")
     print("Tools: " + " -> ".join(turn1_tools + turn2_tools))
     print("Flow: " + " -> ".join(flow))
     print(f"Run ID: {final['run_id']}")
     print(f"Appointment: {final['appointment_id']}")
+    print(f"Semantic events: {len(semantic_events)}")
+    print("Reverse user query: PASS")
 
 
 if __name__ == "__main__":

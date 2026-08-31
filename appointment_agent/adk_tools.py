@@ -13,14 +13,16 @@ from .ontology import (
     AppointmentRequest,
     Channel,
     ContactPoint,
+    DetailCard,
     Organization,
     Person,
     RequestState,
     TimeProposal,
+    TrajectoryCard,
     new_id,
     serialize,
 )
-from .state_store import FirestoreStateStore, JsonStateStore
+from .state_store import FirestoreStateStore, JsonStateStore, normalize_state
 from .workflow import AppointmentWorkflow
 
 
@@ -56,6 +58,11 @@ def _new_store(
             collection=os.getenv(
                 "FIRESTORE_WORKFLOW_COLLECTION", "appointment_workflow_runs"
             ).strip(),
+            trajectory_collection=os.getenv(
+                "FIRESTORE_TRAJECTORY_COLLECTION", "trajectories"
+            ).strip(),
+            event_collection=os.getenv("FIRESTORE_EVENT_COLLECTION", "events").strip(),
+            detail_collection=os.getenv("FIRESTORE_DETAIL_COLLECTION", "details").strip(),
         )
     else:
         # ADK session state remains the JSON backend's canonical snapshot.
@@ -63,7 +70,7 @@ def _new_store(
             str(PACKAGE_ROOT / "data" / "adk_workflow_unused.json")
         )
     if state is not None:
-        store.state = deepcopy(state)
+        store.state = normalize_state(deepcopy(state))
     return store
 
 
@@ -174,12 +181,35 @@ def run_appointment_to_approval(tool_context: ToolContext) -> dict[str, Any]:
     for contact in contact_points:
         store.put("ContactPoint", contact.id, serialize(contact))
 
+    requester_detail = DetailCard(
+        user_id=requester.id,
+        user_data={"name": requester.name},
+    )
+    provider_details = {
+        provider.id: DetailCard(
+            user_id=provider.id,
+            user_data={"name": provider.name},
+        )
+        for provider in providers
+    }
+    store.put_trajectory(serialize(TrajectoryCard(run_id=run_id)))
+    store.put_detail(serialize(requester_detail))
+    for detail in provider_details.values():
+        store.put_detail(serialize(detail))
+
     workflow = AppointmentWorkflow(
         request=request,
         provider_contacts=contacts,
         provider_service=MockRepairProviderService(behaviors),
         store=store,
+        run_id=run_id,
+        requester_detail_id=requester_detail.detail_id,
+        provider_detail_ids={
+            provider_id: detail.detail_id
+            for provider_id, detail in provider_details.items()
+        },
     )
+    workflow.start_trajectory()
     proposal = None
     for provider in providers:
         proposal = workflow.try_provider(provider.id)

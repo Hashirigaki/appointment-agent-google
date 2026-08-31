@@ -5,6 +5,7 @@ from .ontology import (
     AttemptOutcome,
     Channel,
     ContactAttempt,
+    EventCard,
     RequestState,
     TimeProposal,
     TransitionEvent,
@@ -21,14 +22,47 @@ class AppointmentWorkflow:
         provider_contacts: Dict[str, dict],
         provider_service: MockRepairProviderService,
         store: JsonStateStore,
+        run_id: str | None = None,
+        requester_detail_id: str | None = None,
+        provider_detail_ids: Dict[str, str] | None = None,
     ):
         self.request = request
         self.provider_contacts = provider_contacts
         self.provider_service = provider_service
         self.store = store
         self.proposals: List[TimeProposal] = []
+        self.run_id = run_id
+        self.requester_detail_id = requester_detail_id
+        self.provider_detail_ids = provider_detail_ids or {}
 
         self.store.put("AppointmentRequest", request.id, serialize(request))
+
+    def _semantic_event(self, event_type: str, user_id: str, detail_id: str | None):
+        if not self.run_id or not detail_id:
+            return
+        self.store.append_semantic_event(
+            serialize(
+                EventCard(
+                    run_id=self.run_id,
+                    user_id=user_id,
+                    detail_id=detail_id,
+                    event_type=event_type,
+                )
+            )
+        )
+
+    def start_trajectory(self):
+        """Record the two semantic events that begin a new appointment run."""
+        self._semantic_event(
+            "inbound_contact",
+            self.request.requester_id,
+            self.requester_detail_id,
+        )
+        self._semantic_event(
+            "agent_processing",
+            self.request.requester_id,
+            self.requester_detail_id,
+        )
 
     def _transition(self, to_state: RequestState, action: str, reason: str):
         event = TransitionEvent(
@@ -48,6 +82,9 @@ class AppointmentWorkflow:
 
     def try_provider(self, provider_id: str):
         contact = self.provider_contacts[provider_id]
+        provider_detail_id = self.provider_detail_ids.get(provider_id)
+
+        self._semantic_event("outbound_contact", provider_id, provider_detail_id)
 
         self._transition(
             RequestState.CONTACTING,
@@ -82,6 +119,7 @@ class AppointmentWorkflow:
             return None
 
         if response.outcome == AttemptOutcome.SLOTS_PROPOSED:
+            self._semantic_event("reply", provider_id, provider_detail_id)
             proposal = TimeProposal(
                 request_id=self.request.id,
                 provider_id=provider_id,

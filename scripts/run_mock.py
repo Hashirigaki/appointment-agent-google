@@ -10,8 +10,11 @@ from appointment_agent.ontology import (
     AppointmentRequest,
     Channel,
     ContactPoint,
+    DetailCard,
     Organization,
     Person,
+    TrajectoryCard,
+    new_id,
     serialize,
 )
 from appointment_agent.state_store import JsonStateStore
@@ -59,6 +62,7 @@ def main():
         candidate_provider_ids=[p.id for p in providers],
     )
 
+    run_id = new_id("run")
     store = JsonStateStore(str(ROOT / "data" / "mock_run_output.json"))
     store.put("Person", requester.id, serialize(requester))
     for provider in providers:
@@ -70,15 +74,38 @@ def main():
             serialize(contact_point),
         )
 
+    requester_detail = DetailCard(
+        user_id=requester.id,
+        user_data={"name": requester.name},
+    )
+    provider_details = {
+        provider.id: DetailCard(
+            user_id=provider.id,
+            user_data={"name": provider.name},
+        )
+        for provider in providers
+    }
+    store.put_trajectory(serialize(TrajectoryCard(run_id=run_id)))
+    store.put_detail(serialize(requester_detail))
+    for detail in provider_details.values():
+        store.put_detail(serialize(detail))
+
     service = MockRepairProviderService(provider_behaviors)
     workflow = AppointmentWorkflow(
         request=request,
         provider_contacts=contacts,
         provider_service=service,
         store=store,
+        run_id=run_id,
+        requester_detail_id=requester_detail.detail_id,
+        provider_detail_ids={
+            provider_id: detail.detail_id
+            for provider_id, detail in provider_details.items()
+        },
     )
+    workflow.start_trajectory()
 
-    print("\n=== Appointment Agent mock v0.1.1 ===")
+    print("\n=== Appointment Agent mock v0.2 ===")
     print(f"Purpose: {request.purpose}")
     print(f"Request: {request.id}\n")
 
@@ -100,8 +127,18 @@ def main():
     appointment = workflow.approve_and_confirm(proposal, approved_slot)
     store.flush()
 
+    trajectory_events = store.get_events_for_run(run_id)
+    requester_trajectories = store.get_trajectories_for_user(requester.id)
+    if len(trajectory_events) < 4 or len(requester_trajectories) != 1:
+        raise RuntimeError("v0.2 trajectory persistence is incomplete.")
+
     print("\n=== RESULT ===")
     print(f"Appointment: {appointment.id}")
+    print(f"Trajectory:  {run_id}")
+    print(
+        "Events:      "
+        + " -> ".join(event["event_type"] for event in trajectory_events)
+    )
     print(f"Provider:    {appointment.provider_id}")
     print(f"Starts at:   {appointment.starts_at}")
     print(f"State file:  {ROOT / 'data' / 'mock_run_output.json'}")

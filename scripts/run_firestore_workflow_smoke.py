@@ -137,7 +137,7 @@ async def run_smoke() -> None:
     project, database, collection = settings()
     verify_database_exists(project, database, collection)
     from appointment_agent.agent import MODEL_NAME, root_agent
-    from appointment_agent.state_store import create_firestore_client
+    from appointment_agent.state_store import FirestoreStateStore, create_firestore_client
 
     sessions = InMemorySessionService()
     await sessions.create_session(
@@ -189,6 +189,29 @@ async def run_smoke() -> None:
         if not canonical.get("appointment_id") or flow != EXPECTED_FLOW:
             raise RuntimeError(f"Invalid Firestore workflow: {' -> '.join(flow)}")
         verify_no_dangling_references(canonical)
+
+        trajectory_store = FirestoreStateStore(
+            run_id=canonical["run_id"],
+            project=project,
+            database=database,
+            collection=collection,
+            trajectory_collection=os.getenv(
+                "FIRESTORE_TRAJECTORY_COLLECTION", "trajectories"
+            ).strip(),
+            event_collection=os.getenv("FIRESTORE_EVENT_COLLECTION", "events").strip(),
+            detail_collection=os.getenv("FIRESTORE_DETAIL_COLLECTION", "details").strip(),
+        )
+        semantic_events = trajectory_store.get_events_for_run(canonical["run_id"])
+        request = canonical["store_state"]["objects"]["AppointmentRequest"][
+            canonical["request_id"]
+        ]
+        user_trajectories = trajectory_store.get_trajectories_for_user(
+            request["requester_id"]
+        )
+        if len(semantic_events) < 4 or len(user_trajectories) != 1:
+            raise RuntimeError("Firestore v0.2 trajectory queries are incomplete.")
+        if any(event["run_id"] != canonical["run_id"] for event in semantic_events):
+            raise RuntimeError("A Firestore Event Card has the wrong run_id.")
     finally:
         await runner.close()
 
@@ -200,6 +223,8 @@ async def run_smoke() -> None:
     print("Tools: " + " -> ".join(turn1_tools + turn2_tools))
     print("Flow: " + " -> ".join(EXPECTED_FLOW))
     print("Dangling references: none")
+    print(f"Semantic events: {len(semantic_events)}")
+    print("Reverse user query: PASS")
 
 
 if __name__ == "__main__":

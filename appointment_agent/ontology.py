@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field, asdict
 from enum import Enum
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 from datetime import datetime, timezone
 
@@ -120,6 +120,34 @@ class TransitionEvent:
     reason: str
     id: str = field(default_factory=lambda: new_id("event"))
     created_at: str = field(default_factory=now_iso)
+
+
+@dataclass(frozen=True)
+class TrajectoryCard:
+    """One workflow run; Event Cards are linked by run_id, not embedded here."""
+
+    run_id: str
+
+
+@dataclass(frozen=True)
+class EventCard:
+    """Upper-layer semantic event used to reconstruct a trajectory."""
+
+    run_id: str
+    user_id: str
+    detail_id: str
+    event_type: str
+    event_id: str = field(default_factory=lambda: new_id("semantic_event"))
+    start_time: str = field(default_factory=now_iso)
+
+
+@dataclass
+class DetailCard:
+    """Current editable data for a person or organization referenced by Events."""
+
+    user_id: str
+    user_data: Dict[str, Any]
+    detail_id: str = field(default_factory=lambda: new_id("detail"))
 
 
 def serialize(obj):
