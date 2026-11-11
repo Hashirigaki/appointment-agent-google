@@ -204,3 +204,14 @@ docs/
   demo-script.md
   submission-checklist.md
 ```
+
+## License
+
+Copyright (c) 2026 Hashirigaki.
+
+The original source code and documentation in this repository are licensed under
+the [MIT License](LICENSE).
+
+Third-party dependencies, including Google ADK and the Google Cloud client
+libraries, remain subject to their own licenses. This repository's MIT license
+does not grant rights to those third-party packages, cloud services, or trademarks.
